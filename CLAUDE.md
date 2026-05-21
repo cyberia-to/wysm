@@ -1,6 +1,6 @@
 # agent collaboration
 
-principles for working with AI coding agents on the cyber wasm runtime. read this and the foundational documents to have full context:
+principles for working with AI coding agents on the cyber wysm runtime. read this and the foundational documents to have full context:
 
 - [[cyber/engineering]] — pipeline contracts, dual-stream optimization, verification dimensions
 - [[cyber/quality]] — 12 review passes, severity tiers, audit protocol
@@ -15,22 +15,24 @@ the project is supervised by an engineer with 30 years of experience. deception 
 
 a hard fork of [wasmi](https://github.com/wasmi-labs/wasmi) v2.0.0-beta.2 (commit `a8f6d806`), extended with four cyber-native enhancements: jet substitution, finite-wasm metering, an actor harness, and a trident-lowering on-ramp. the runtime cyb embeds to execute conventional WebAssembly programs (souls) loaded from radio.
 
-see `specs/wasm.md` for the full design.
+`wysm` is cyber's name for the runtime. `wasm`/`WASM` is the WebAssembly format. `wasmi` is the upstream project. cyber-side crates use the `wysm-` prefix; upstream crates keep their `wasmi_*` names.
+
+see `specs/wysm.md` for the full design.
 
 ## companion repos
 
 | repo | path | role |
 |------|------|------|
 | nox | `~/cyber/nox` | sibling runtime; jet authors borrow nox jet patterns |
-| rune | `~/cyber/rune` | calls into wasm via `~host:%wasm.module.fn.args` |
+| rune | `~/cyber/rune` | calls into wysm via `~host:%wasm.module.fn.args` |
 | trident | `~/cyber/trident` | reads `wasmi_ir` for WASM → LIR lowering |
-| cyb | `~/cyber/cyb` | embeds wasm as soul runtime |
+| cyb | `~/cyber/cyb` | embeds wysm as soul runtime |
 | radio | `~/cyber/radio` | source of soul particles loaded into the engine |
 | cyber | `~/cyber/cyber` | knowledge graph (parent subgraph) |
 
 ## upstream tracking
 
-origin is `wasmi-labs/wasmi` as the `upstream` remote. publish cyber-specific commits on the `main` branch only. merge upstream releases as their own commits; never rebase to hide divergence.
+origin is `wasmi-labs/wasmi` as the `upstream` remote. cyber-specific commits live on `main`. merge upstream releases as their own commits; never rebase to hide divergence.
 
 ```
 git fetch upstream
@@ -46,7 +48,7 @@ document non-trivial divergence in `specs/patches.md`.
 - `LICENSE-APACHE`, `LICENSE-MIT` — preserve dual-license attribution
 - `specs/` — canonical spec, change there first then propagate to code
 
-cyber-specific code lives in **new** crates: `crates/wasmi-jet`, `crates/wasmi-meter`, `crates/wasmi-harness`, `crates/wasmi-trident`. additions to these are free.
+cyber-specific code lives in **new** crates: `crates/wysm-jet`, `crates/wysm-meter`, `crates/wysm-harness`, `crates/wysm-trident`. additions to these are free.
 
 ## git workflow
 

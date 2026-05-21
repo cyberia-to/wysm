@@ -1,12 +1,16 @@
 ---
 tags: cyber, cyb, runtime, article
-alias: wasm runtime, wasm sandbox, soul runtime
+alias: wysm runtime, wasm runtime, wasm sandbox, soul runtime
 crystal-type: entity
 crystal-domain: cyber
 ---
-# wasm
+# wysm
 
-the WASM runtime tier of soft3. a hard fork of [wasmi](https://github.com/wasmi-labs/wasmi) v2.0.0-beta.2, extended with four cyber-native enhancements: jet substitution, finite-style metering, an actor harness, and a trident-lowering on-ramp. the runtime cyb embeds to execute conventional programs (souls) loaded from radio, sandboxed and resource-bounded, with a migration path to provable nox execution.
+the WASM runtime tier of soft3 — cyber's name for the wasm sandbox layer. a hard fork of [wasmi](https://github.com/wasmi-labs/wasmi) v2.0.0-beta.2, extended with four cyber-native enhancements: jet substitution, finite-style metering, an actor harness, and a trident-lowering on-ramp. the runtime cyb embeds to execute conventional programs (souls) loaded from radio, sandboxed and resource-bounded, with a migration path to provable nox execution.
+
+## naming
+
+`wysm` is cyber's name for the runtime. `wasm` and `WASM` refer to the WebAssembly format and ecosystem. `wasmi` is the upstream project this fork tracks. cyber-side crates use the `wysm-` prefix (`wysm-jet`, `wysm-meter`, `wysm-harness`, `wysm-trident`); upstream crates keep their `wasmi_*` names to remain mergeable.
 
 ## position in soft3
 
@@ -30,7 +34,7 @@ wasmi is consumed as a fork, not a dependency, because cyb does substantive work
 3. **harness** ports lunatic's actor/mailbox/capability-token patterns onto wasmi. lunatic itself hard-codes wasmtime. the port lives best as cyber's own code with wasmi-as-engine, not as a fork of lunatic.
 4. **trident lowering** reads wasmi's IR (the new `wasmi_ir` 3.0 crate, public types) and emits trident LIR. tightly coupled to wasmi internals — must move with them.
 
-upstream wasmi is small, audited (SRLabs 2023, Runtime Verification 2024), and on a roughly-quarterly release cadence. the fork commits to merging upstream every release. divergence is intentional but bounded: cyber-specific code lives in new crates (`wasmi-jet`, `wasmi-meter`, `wasmi-harness`, `wasmi-trident`); upstream crates are touched only when the dispatch loop needs a jet hook or the loader needs a metering hook. patches are tracked in `specs/patches.md`.
+upstream wasmi is small, audited (SRLabs 2023, Runtime Verification 2024), and on a roughly-quarterly release cadence. the fork commits to merging upstream every release. divergence is intentional but bounded: cyber-specific code lives in new crates (`wysm-jet`, `wysm-meter`, `wysm-harness`, `wysm-trident`); upstream crates are touched only when the dispatch loop needs a jet hook or the loader needs a metering hook. patches are tracked in `specs/patches.md`.
 
 ## base — wasmi v2.0.0-beta.2
 
@@ -55,9 +59,9 @@ the cyber-unique contribution. at module load, every function body is normalized
 
 | layer | what it is | LOC budget |
 |-------|-----------|------------|
-| `wasmi-jet/normalize.rs` | canonical form: strip locals, alpha-rename, sort case branches | ~400 |
-| `wasmi-jet/registry.rs` | hash → JetFn dispatch table; loader hook | ~300 |
-| `wasmi-jet/jets/*` | the jet library — one file per algorithm | ~200 per jet |
+| `wysm-jet/normalize.rs` | canonical form: strip locals, alpha-rename, sort case branches | ~400 |
+| `wysm-jet/registry.rs` | hash → JetFn dispatch table; loader hook | ~300 |
+| `wysm-jet/jets/*` | the jet library — one file per algorithm | ~200 per jet |
 
 target jet library (in order of expected impact):
 
@@ -84,7 +88,7 @@ no patch required. the work is testing: benchmark cyb's actual soul workloads ag
 
 ### 3. metering — finite-wasm pattern
 
-module-rewrite-time deterministic gas instrumentation, modeled on [near/finite-wasm](https://github.com/near/finite-wasm). lives in a new crate `wasmi-meter` sitting between `wasmparser` and `wasmi::Module::new`.
+module-rewrite-time deterministic gas instrumentation, modeled on [near/finite-wasm](https://github.com/near/finite-wasm). lives in a new crate `wysm-meter` sitting between `wasmparser` and `wasmi::Module::new`.
 
 the rewrite injects:
 - per-instruction gas counter decrement (collapsed per basic-block)
@@ -134,7 +138,7 @@ the gap-class workaround for non-rune wasm modules that call `await` directly is
 | layer | what it bounds | mechanism |
 |-------|---------------|-----------|
 | memory | linear memory size | wasmi `ResourceLimiter` — max pages per Store |
-| compute | instructions executed | `wasmi-meter` global gas counter |
+| compute | instructions executed | `wysm-meter` global gas counter |
 | host-call rate | concurrent IPFS/signer/network requests | per-soul semaphores in host shims |
 | filesystem | none allowed | no WASI filesystem mount; document deny-by-default |
 | network | only via host shims, never WASI sockets | no `wasi_snapshot_preview1::sock_*` imports linked |
@@ -144,7 +148,7 @@ bandwidth is bounded **one layer up**, at the cyb host shims — not at the WASM
 
 ## trident-lowering on-ramp
 
-`wasmi-trident` reads `wasmi_ir` 3.0's public types and emits trident LIR. mirrors trident's existing `mir2nox.rs` (Rust MIR → nox) and `compile/wasm.rs` (nox → wasm). closes the soft3.md migration loop:
+`wysm-trident` reads `wasmi_ir` 3.0's public types and emits trident LIR. mirrors trident's existing `mir2nox.rs` (Rust MIR → nox) and `compile/wasm.rs` (nox → wasm). closes the soft3.md migration loop:
 
 ```
 .tri → trident LIR → nox (existing)
@@ -166,7 +170,7 @@ phase 3: opens — should the lowering pass also do circuit-size-aware optimizat
 |------|------|----------|-----------|
 | volatile memory | wasm pages (64 KiB) | `ResourceLimiter` | per Store, set at instantiation |
 | persistent memory | rune `~mem` subject slot bytes | rune runtime, not wasm | per soul |
-| compute | gas units | `wasmi-meter` | per Store; refilled by hint, signer-confirmed top-up, or staking |
+| compute | gas units | `wysm-meter` | per Store; refilled by hint, signer-confirmed top-up, or staking |
 | bandwidth | host-call concurrency | host shim semaphore | per soul × per shim |
 | host-call count | hint-yields, signer prompts | rune runtime caps | per epoch |
 
@@ -179,13 +183,13 @@ cyb caps are signed by the [[neuron]] running the soul, not by the soul itself. 
 | wasm | `~/cyber/wasm` | this fork — engine + jets + meter + harness + trident on-ramp |
 | nox | `~/cyber/nox` | sibling runtime; jet authors borrow from nox jet patterns |
 | rune | `~/cyber/rune` | calls into wasm via `~host:%wasm.module.fn.args` |
-| trident | `~/cyber/trident` | consumer of `wasmi-trident` for WASM → LIR lowering |
+| trident | `~/cyber/trident` | consumer of `wysm-trident` for WASM → LIR lowering |
 | cyb | `~/cyber/cyb` | the embedding host — owns the soul lifecycle |
 | radio | `~/cyber/radio` | source of soul particles loaded into the engine |
 
 depends on: `wasmi_ir`, `wasmi_core`, `wasmi_collections` (internal). does not depend on any cyber runtime crate — wasm is a leaf in the dependency graph by design.
 
-consumed by: cyb (binary), rune-interp (host call dispatch), trident (via `wasmi-trident` lowering).
+consumed by: cyb (binary), rune-interp (host call dispatch), trident (via `wysm-trident` lowering).
 
 ## roadmap
 
@@ -194,13 +198,13 @@ estimation per cyber convention: 1 pomodoro = 30 min, 1 session = 6 pomodoros.
 | phase | what lands | sessions |
 |-------|-----------|----------|
 | 0 | fork in place, `unstable` dispatch enabled, baseline benchmarks recorded | 1 |
-| 1 | `wasmi-jet` infrastructure (normalize + registry + loader hook) + first 3 jets (blake3, sha256, poseidon2) | 2 |
+| 1 | `wysm-jet` infrastructure (normalize + registry + loader hook) + first 3 jets (blake3, sha256, poseidon2) | 2 |
 | 2 | extended jet library (keccak, ed25519, secp256k1, bls, goldilocks) + differential test corpus | 2 |
-| 3 | `wasmi-meter` — finite-wasm-style module rewriter, opcode cost table, gas-global injection | 3 |
-| 4 | `wasmi-harness` — capability tokens, guest mailbox, supervision tree on wasmi | 4 |
+| 3 | `wysm-meter` — finite-wasm-style module rewriter, opcode cost table, gas-global injection | 3 |
+| 4 | `wysm-harness` — capability tokens, guest mailbox, supervision tree on wasmi | 4 |
 | 5 | rune host bindings ported to wasm runtime (replacing nothing — there's no current implementation) | 2 |
 | 6 | cyb integration — soul launcher reads particles from radio, executes via wasm runtime | 3 |
-| 7 | `wasmi-trident` phase 0 — i32/i64/locals/calls round-trip through trident LIR | 4 |
+| 7 | `wysm-trident` phase 0 — i32/i64/locals/calls round-trip through trident LIR | 4 |
 | 8 | upstream merge from next wasmi release; verify no regressions | 1 |
 
 total: ~22 sessions for a usable production runtime + first lowering experiment. roughly two months at sustained pace.
@@ -234,7 +238,7 @@ the most battle-tested deterministic wasmi profile in production. cyb copies it 
 
 this is the "deterministic" profile, used for souls whose execution trace is a proof witness. cyb additionally ships a "permissive" profile that re-enables SIMD and floats for UI/render souls that have no proof contract; the choice is per-soul, declared in particle frontmatter.
 
-**vendoring note**: the helper config is small (~30 LOC) and stable. literal-copy from `stellar/rs-soroban-env/soroban-env-host/src/budget/wasmi_helper.rs` into `crates/wasmi-meter/src/profile.rs`, preserve Apache-2.0 attribution in the file header, sync against upstream every Soroban release (they update it for new wasm proposals as the determinism story evolves).
+**vendoring note**: the helper config is small (~30 LOC) and stable. literal-copy from `stellar/rs-soroban-env/soroban-env-host/src/budget/wasmi_helper.rs` into `crates/wysm-meter/src/profile.rs`, preserve Apache-2.0 attribution in the file header, sync against upstream every Soroban release (they update it for new wasm proposals as the determinism story evolves).
 
 ### execution profiles — deterministic vs permissive
 
@@ -261,7 +265,7 @@ the honest characterization: **cyb runs souls, not random wasm**. a soul is a wa
 
 ### borrowed: Soroban fuel refill pattern
 
-host pushes fuel into the VM before each call (`add_fuel_to_vm`) and pulls remainder back on return (`return_fuel_to_host`). budget is held by the host, not the VM; the VM is a transient fuel-burner. Soroban needed this because wasmi 0.31 made `FuelCosts` private — they patched it back open in their fork. wasmi v2 keeps these accessors public via `--features unstable`. integrates with `wasmi-meter` for the metering side.
+host pushes fuel into the VM before each call (`add_fuel_to_vm`) and pulls remainder back on return (`return_fuel_to_host`). budget is held by the host, not the VM; the VM is a transient fuel-burner. Soroban needed this because wasmi 0.31 made `FuelCosts` private — they patched it back open in their fork. wasmi v2 keeps these accessors public via `--features unstable`. integrates with `wysm-meter` for the metering side.
 
 ### borrowed: Soroban three-tier storage
 
@@ -380,7 +384,7 @@ deferred. trident's GNN+Transformer optimizer is sized for register IR. retraini
 | `LICENSE-APACHE`, `LICENSE-MIT` | upstream license — preserve dual-license attribution |
 | `crates/c_api/` | unused by cyb; keep buildable for upstream-merge sake but do not extend |
 
-cyber-specific code lives in **new** crates: `crates/wasmi-jet`, `crates/wasmi-meter`, `crates/wasmi-harness`, `crates/wasmi-trident`. additions to these are free.
+cyber-specific code lives in **new** crates: `crates/wysm-jet`, `crates/wysm-meter`, `crates/wysm-harness`, `crates/wysm-trident`. additions to these are free.
 
 ## Kelvin discipline
 
