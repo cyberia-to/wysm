@@ -100,6 +100,8 @@ the rewrite injects:
 
 this decouples metering from the engine forever. swapping wasmi → wasmer-singlepass → trident-lowered nox does not require rewriting the gas contract — the metered module carries its own gas semantics.
 
+NEAR (`finite-wasm`) and DFINITY (IC embedder static instrumentation) independently arrived at the same design — module-rewrite, engine-agnostic, deterministic across nodes. the convergence is the design's validation. see "prior art and borrowed patterns" for the full cross-reference.
+
 ### 4. harness — actor model on wasmi
 
 a port of [lunatic](https://github.com/lunatic-solutions/lunatic)'s actor patterns onto wasmi, since lunatic itself is welded to wasmtime and stalled since May 2023. the four patterns worth porting:
@@ -112,6 +114,8 @@ a port of [lunatic](https://github.com/lunatic-solutions/lunatic)'s actor patter
 | QUIC distributed nodes | `lunatic-distributed/` | **skip** | [[radio]] already covers this |
 
 target LOC: ~3k for the cyb-side implementation. lunatic's design is sound; only the implementation is wasmtime-coupled.
+
+the supervision tree is built on a `PausedExecution` primitive borrowed from DFINITY's IC embedder: a soul that has paused — by fuel exhaustion, hint yield, or signer prompt — is a first-class state in the supervisor's model, distinct from "running" or "dead". the supervisor can snapshot, replay, or hot-reload paused souls without losing in-flight work. it is the wasm-level primitive that completes [[rune]]'s solid-state-interpreter model — the kernel function `(subject, event) -> (new-subject, effects)` was already replayable; `PausedExecution` makes it physical. ~20 lines of trait definition, re-implemented independently of IC-1.0-licensed code.
 
 ## async contract — rune `hint`, not async host
 
@@ -201,6 +205,71 @@ estimation per cyber convention: 1 pomodoro = 30 min, 1 session = 6 pomodoros.
 
 total: ~22 sessions for a usable production runtime + first lowering experiment. roughly two months at sustained pace.
 
+## prior art and borrowed patterns
+
+three production WASM-on-chain systems run deterministic adversarial WASM at scale. each independently arrived at variants of the same architecture. cyb borrows specific patterns from each.
+
+### production parallels
+
+| project | engine | metering | size of embedder | what we copy |
+|---------|--------|----------|------------------|--------------|
+| **Stellar Soroban** | wasmi 0.31 fork (Apache-2.0) | engine fuel + 80+ host-fn cost types | ~25k LOC | deterministic config, fuel refill, three-tier storage, x-macro host registry |
+| **NEAR Protocol** | wasmer-2 singlepass fork (~40k LOC) | `finite-wasm` module rewrite | ~8k LOC | metering pattern (already adopted as enhancement #3) |
+| **DFINITY IC** | wasmtime + ~19k embedder (IC-1.0) | static bytecode injection at install time | ~19k LOC | `PausedExecution`, snapshot-at-await, NaN canonicalization |
+
+common ground across all three: nobody runs Cranelift on adversarial code. all use singlepass JIT or interpreter. all enforce determinism (floats banned or NaN-canonicalized, threads off, sorted iteration). all use module-rewrite or fuel for metering, never after-the-fact accounting. cyb's wasmi v2 + finite-wasm-style metering + Soroban deterministic profile is the convergent design these three arrived at variants of.
+
+### borrowed: Soroban deterministic wasmi config
+
+the most battle-tested deterministic wasmi profile in production. cyb copies it verbatim for proof-relevant souls. source: `stellar/rs-soroban-env/soroban-env-host/src/budget/wasmi_helper.rs` (Apache-2.0).
+
+| feature | setting |
+|---------|---------|
+| floats | `floats(false)` + reject any FP opcode at parse |
+| bulk-memory | ON |
+| mutable-global | ON |
+| sign-extension | ON |
+| SIMD, threads, multi-value, reference-types, tail-call, extended-const, multi-memory, shared memory, component-model | OFF |
+| start functions | rejected |
+
+this is the "deterministic" profile, used for souls whose execution trace is a proof witness. cyb additionally ships a "permissive" profile that re-enables SIMD and floats for UI/render souls that have no proof contract; the choice is per-soul, declared in particle frontmatter.
+
+### borrowed: Soroban fuel refill pattern
+
+host pushes fuel into the VM before each call (`add_fuel_to_vm`) and pulls remainder back on return (`return_fuel_to_host`). budget is held by the host, not the VM; the VM is a transient fuel-burner. Soroban needed this because wasmi 0.31 made `FuelCosts` private — they patched it back open in their fork. wasmi v2 keeps these accessors public via `--features unstable`. integrates with `wasmi-meter` for the metering side.
+
+### borrowed: Soroban three-tier storage
+
+souls have three storage classes, not one:
+
+| tier | lifetime | restore | use case |
+|------|----------|---------|----------|
+| persistent | TTL'd; archives on expiry, restorable via signed restore | yes | durable soul identity, balances, model weights |
+| temporary | TTL'd; vanishes irreversibly on expiry | no | sessions, oracle reads, signer cache |
+| instance | shares contract code TTL; loaded every invoke | n/a | small per-soul hot config map |
+
+source: Stellar CAP-0066 (Protocol 23, "Whisk"). maps cleanly onto [[bbg]] dimensions: persistent → bbg, temporary → in-memory, instance → particle frontmatter. [[rune]]'s `~mem` slot becomes persistent by default; souls opt into temporary or instance tiers via `~caps`.
+
+### borrowed: DFINITY snapshot-at-await
+
+instead of stackful coroutines (wasmi has no good story for these), commit state at the await point, spin up a fresh instance for the callback, only roll back post-await state on failure. dovetails with rune's `hint` primitive — hint is already a snapshot point in the semantics. mechanism:
+
+1. soul calls a host import that needs to await (e.g. `host.ipfs_read`)
+2. host enqueues the work, registers a callback (fn pointer + env i32) in the soul's continuation table
+3. soul's current state is committed; the wasm instance is torn down
+4. when the work completes, a fresh instance is spun up from the snapshot and the callback is dispatched
+5. if the callback traps, only post-await state rolls back to the snapshot; pre-await effects stay committed
+
+every `hint` is an interleaving point — same security footgun as IC ("reentrancy on await"). document this in the soul authoring guide as a load-bearing concern, not a footnote.
+
+### borrowed: DFINITY NaN canonicalization
+
+one-line engine config for cross-host determinism. cyb's deterministic profile rejects FP entirely (via Soroban config), so this is subsumed. for the permissive profile (UI souls with floats), enable NaN canonicalization explicitly at the engine level. relevant only because some hosts may emit different NaN bit patterns from the same operation — proof-relevant code must agree bit-exactly.
+
+### borrowed: Soroban x-macro host-fn registry
+
+`call_macro_with_all_host_functions` is Soroban's single source of truth for ~190 host functions: declare once, get zero-cost dispatch + version gating + ABI documentation. cyb's host bindings layer (the existing cyb scripting API from `cyb/docs/scripting.md`) adopts the same pattern for the rune ↔ wasm shim. one macro invocation replaces hand-maintained dispatch tables in three places (engine glue, guest SDK, version manifest).
+
 ## rejected alternatives
 
 reflected here so future contributors do not redebate the choices.
@@ -220,6 +289,18 @@ rejected. best mobile story (iOS/Android NDK clean), but cyb does not target iOS
 ### lunatic as the actor harness
 
 rejected as a dependency; **adopted as a design source**. last release v0.13.2 (May 2023), stalled; code welded to wasmtime via `wasmtime::Store<T>` everywhere. port the four patterns into our own code over wasmi.
+
+### CosmWasm (cosmwasm-vm) as the embedded engine
+
+rejected for the cyb client runtime, retained as conceptual prior art for the [[semcons|semcon]] ABI. cosmwasm-vm is ~15k LOC and audited, but transitively pulls in wasmer-singlepass (~150k LOC), reintroducing the size problem wasmer was rejected for. the `execute`/`query`/`instantiate`/`migrate`/`sudo` contract shape is wrong for cyb souls, which are async UI callbacks — not synchronous request/response. the cw-cyber lineage points back to the [[go-cyber]] legacy chain, not toward [[soft3]]. **borrow the entry-point vocabulary** for semcons (`instantiate`, `execute`, `query`, `migrate`, `sudo`); do not embed the engine.
+
+### DFINITY IC embedder (`dfinity/ic/rs/embedders/`)
+
+rejected as a code dependency, **adopted as a design source** (see "prior art and borrowed patterns"). the IC-1.0 license grants only extend to code "running directly on the Internet Computer platform"; cyb is outside scope. additionally, the embedder is welded to wasmtime (~250k LOC), the same size problem we rejected at the engine layer. four patterns borrowed independently: `PausedExecution`, snapshot-at-await, NaN canonicalization, and static bytecode metering — the last of which validates our `finite-wasm` choice, since DFINITY and NEAR independently arrived at the same metering design.
+
+### soroban-wasmi fork (stellar/wasmi)
+
+deferred. Stellar's fork is 7 patches on top of upstream wasmi v0.31.1 (stack-machine era) — crate rename, custom-section exposure, `FuelCosts` accessors, an `InstanceCache` bugfix, version bump. cyb runs on v2.0.0-beta.2 (register-machine, ~2-4× faster, lazy compile, Stellar-funded Runtime Verification audit). Soroban stays on 0.31 only because of cost-model recalibration risk; cyb has no such anchor. revisit if specific Soroban patches prove useful — both custom-section exposure and `FuelCosts` accessors are already public in wasmi v2 via `--features unstable`.
 
 ### copy-and-patch compilation (Xu & Kjolstad, OOPSLA '21)
 
