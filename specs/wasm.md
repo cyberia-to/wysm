@@ -234,6 +234,31 @@ the most battle-tested deterministic wasmi profile in production. cyb copies it 
 
 this is the "deterministic" profile, used for souls whose execution trace is a proof witness. cyb additionally ships a "permissive" profile that re-enables SIMD and floats for UI/render souls that have no proof contract; the choice is per-soul, declared in particle frontmatter.
 
+**vendoring note**: the helper config is small (~30 LOC) and stable. literal-copy from `stellar/rs-soroban-env/soroban-env-host/src/budget/wasmi_helper.rs` into `crates/wasmi-meter/src/profile.rs`, preserve Apache-2.0 attribution in the file header, sync against upstream every Soroban release (they update it for new wasm proposals as the determinism story evolves).
+
+### execution profiles — deterministic vs permissive
+
+cyb is a soul runtime, not a generic wasm host. souls choose one of two profiles in `.cyb` frontmatter:
+
+```toml
+profile = "deterministic"   # proof-relevant: trace is a witness
+profile = "permissive"      # UI/render/inference: result accepted on faith
+```
+
+| dimension | deterministic | permissive |
+|-----------|---------------|------------|
+| wasm features | Soroban config (above) | all valid wasmi v2 features |
+| floats | banned at parse | allowed |
+| SIMD | OFF | ON |
+| trust contract | trace is a witness; trident-lowerable to nox eventually | rune host-call witness; result accepted on faith |
+| who picks | semcon authors, proof-relevant souls | UI souls, render, inference, general compute |
+| default | no | **yes** |
+| typical workload | hash, signature, deterministic state transition | three.js-style 3D, audio DSP, ML pre/post-processing |
+
+both profiles **deny WASI imports**. souls must be linked against `cyb-sdk` (the cyb host binding set, mirroring `soroban-sdk` / `ic-cdk` / `cosmwasm-std`). a WASI shim layer rewrites common WASI imports (`fd_write` → console log, `clock_time_get` → `~now`, filesystem ops → deny) at module load — same pattern as DFINITY's `ic-wasi-polyfill` (community-maintained). this is the second, larger gate on "running random wasm": almost no off-the-shelf `.wasm` will load without either being recompiled against `cyb-sdk` or running through the WASI shim.
+
+the honest characterization: **cyb runs souls, not random wasm**. a soul is a wasm module authored for cyb's host API in a chosen profile. every production wasm embed (Soroban, Spin, IC, wasmCloud) does the same; cyb just makes the boundary explicit.
+
 ### borrowed: Soroban fuel refill pattern
 
 host pushes fuel into the VM before each call (`add_fuel_to_vm`) and pulls remainder back on return (`return_fuel_to_host`). budget is held by the host, not the VM; the VM is a transient fuel-burner. Soroban needed this because wasmi 0.31 made `FuelCosts` private — they patched it back open in their fork. wasmi v2 keeps these accessors public via `--features unstable`. integrates with `wasmi-meter` for the metering side.
@@ -269,6 +294,34 @@ one-line engine config for cross-host determinism. cyb's deterministic profile r
 ### borrowed: Soroban x-macro host-fn registry
 
 `call_macro_with_all_host_functions` is Soroban's single source of truth for ~190 host functions: declare once, get zero-cost dispatch + version gating + ABI documentation. cyb's host bindings layer (the existing cyb scripting API from `cyb/docs/scripting.md`) adopts the same pattern for the rune ↔ wasm shim. one macro invocation replaces hand-maintained dispatch tables in three places (engine glue, guest SDK, version manifest).
+
+### deferred: Soroban module cache (CAP-0066)
+
+Stellar's Protocol 23 ("Whisk", September 2025) introduced a module cache: contracts are parsed and translated **once per transaction**, then reused across every invocation in the same tx. for cyb the analogous unit is "once per neuron session" or "once per soul lifetime". translation is the dominant cost for short host calls. defer until benchmarks show translation as the bottleneck — likely after jets + tail-call land. wasmi v2's lazy compilation already amortizes some of this; the explicit cross-invocation cache is a v2-of-cyb optimization.
+
+### key files to study (with line counts)
+
+| file | LOC | what to look at |
+|------|-----|-----------------|
+| `stellar/rs-soroban-env/soroban-env-host/src/budget/wasmi_helper.rs` | ~30 | the deterministic profile — copy verbatim |
+| `stellar/rs-soroban-env/soroban-env-host/src/vm.rs` | ~600 | `add_fuel_to_vm` / `return_fuel_to_host`; Vm wrapper pattern |
+| `stellar/rs-soroban-env/soroban-env-host/src/vm/dispatch.rs` | varies | x-macro host-fn registry expansion |
+| `dfinity/ic/rs/embedders/src/wasm_executor.rs` | ~860 | `PausedExecution` trait, lines 120–166 |
+| `dfinity/ic/rs/embedders/src/wasm_utils/instrumentation.rs` | ~1,690 | static bytecode metering injection — readable in an afternoon |
+| `near/finite-wasm` (separate repo) | ~5,000 | module-rewrite metering as standalone Rust crate |
+| `lunatic-solutions/lunatic/crates/lunatic-process/src/config.rs` | ~1,000 | capability tokens pattern |
+
+read these before writing the corresponding cyb-side code. each is the production reference for one pattern. cyb's implementations will look structurally similar — that is the design intent, not a coincidence.
+
+### bonus findings worth knowing about
+
+| finding | source | relevance to cyb |
+|---------|--------|------------------|
+| Stellar Audit Bank — $3M across 40+ audits via Certora, Veridise, RV, OtterSec, CoinFabrik, QuarksLab, Coinspect | Stellar Foundation | when cyb's soul runtime needs adversarial audit, this is the template — pick 2–3 firms, scope tightly to the new crates (jet/meter/harness), don't re-audit upstream wasmi |
+| Soroban's hybrid 2D budget (CPU instructions × memory bytes) | `soroban-env-host/src/budget.rs` | single-axis gas is a simplification — two-axis budget matches resource reality better. consider for cyb when souls start hitting memory walls rather than compute walls |
+| DFINITY's `wasi2ic` + `ic-wasi-polyfill` (community, wasm-forge org) | `github.com/wasm-forge` | the WASI-shim pattern cyb needs for "run random .wasm" support. study the import-rewrite approach |
+| Certora's Sunbeam Prover (Soroban-specific formal verification) | Certora | formal verification of *contracts*, not the runtime. relevant when cyb wants formal proofs over semcons; less relevant for the wasm runtime itself |
+| Soroban's `RestoreFootprintOp` for archived persistent state | Stellar CAP-0046-08 | the "explicit restore step" pattern for cold storage. maps onto bbg cold-particle retrieval cleanly |
 
 ## rejected alternatives
 
