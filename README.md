@@ -1,3 +1,25 @@
+# wysm
+
+the WASM runtime tier of [[soft3]] — a hard fork of [wasmi](https://github.com/wasmi-labs/wasmi) v2, extended with four cyber-native enhancements: jet substitution, finite-wasm metering, lunatic-pattern actor harness, and a [[trident]]-lowering on-ramp. the runtime [[cyb]] embeds to execute conventional programs ([[souls]]) loaded from [[radio]].
+
+canonical spec: `specs/wysm.md`.
+
+## position in soft3
+
+| runtime | what runs | proof contract |
+|---------|-----------|----------------|
+| [[nox]] | proven .nox programs, jets | unconditional |
+| [[glia]] | .model inference | conditional on model |
+| **wysm** | WASM modules, rune host jets | conditional on host |
+| wgpu | GPU compute shaders | conditional on host |
+
+wysm is the seat for conventional programs — anything that compiles to WebAssembly, deployed as a [[particle]], executed as a soul. the long-term arc is migration: WASM → [[trident]] LIR → [[nox]]. souls start in wysm and graduate to nox as their inner loops get lowered through trident.
+
+## why a fork
+
+cyber does substantive work on the runtime itself — jet substitution dispatches below the executor, metering instruments at module-rewrite time, the harness needs internal hooks, and the trident lowering reads `wasmi_ir` types tightly. divergence lives in **new** crates: `wysm-jet`, `wysm-meter`, `wysm-harness`, `wysm-trident`. upstream crates are touched only at hook points.
+
+---
 
 | Continuous Integration |     Test Coverage    |  Documentation   |      Crates.io       |
 |:----------------------:|:--------------------:|:----------------:|:--------------------:|
