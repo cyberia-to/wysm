@@ -2,10 +2,10 @@
 
 principles for working with AI coding agents on the cyber wysm runtime. read this and the foundational documents to have full context:
 
-- [[cyber/engineering]] — pipeline contracts, dual-stream optimization, verification dimensions
-- [[cyber/quality]] — 12 review passes, severity tiers, audit protocol
-- [[cyber/projects]] — repo layout, namespace conventions, git workflow
-- [[cyber/documentation]] — Diataxis framework, reference vs docs, spec before code
+- [[cyberia/engineering]] — pipeline contracts, dual-stream optimization, verification dimensions
+- [[cyberia/quality]] — 12 review passes, severity tiers, audit protocol
+- [[cyberia/projects]] — repo layout, namespace conventions, git workflow
+- [[cyberia/documentation]] — Diataxis framework, reference vs docs, spec before code
 
 ## auditor mindset
 
