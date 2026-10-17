@@ -255,7 +255,7 @@ profile = "permissive"      # UI/render/inference: result accepted on faith
 | floats | banned at parse | allowed |
 | SIMD | OFF | ON |
 | trust contract | trace is a witness; trident-lowerable to nox eventually | rune host-call witness; result accepted on faith |
-| who picks | semcon authors, proof-relevant souls | UI souls, render, inference, general compute |
+| who picks | dialect authors, proof-relevant souls | UI souls, render, inference, general compute |
 | default | no | **yes** |
 | typical workload | hash, signature, deterministic state transition | three.js-style 3D, audio DSP, ML pre/post-processing |
 
@@ -324,7 +324,7 @@ read these before writing the corresponding cyb-side code. each is the productio
 | Stellar Audit Bank — $3M across 40+ audits via Certora, Veridise, RV, OtterSec, CoinFabrik, QuarksLab, Coinspect | Stellar Foundation | when cyb's soul runtime needs adversarial audit, this is the template — pick 2–3 firms, scope tightly to the new crates (jet/meter/harness), don't re-audit upstream wasmi |
 | Soroban's hybrid 2D budget (CPU instructions × memory bytes) | `soroban-env-host/src/budget.rs` | single-axis gas is a simplification — two-axis budget matches resource reality better. consider for cyb when souls start hitting memory walls rather than compute walls |
 | DFINITY's `wasi2ic` + `ic-wasi-polyfill` (community, wasm-forge org) | `github.com/wasm-forge` | the WASI-shim pattern cyb needs for "run random .wasm" support. study the import-rewrite approach |
-| Certora's Sunbeam Prover (Soroban-specific formal verification) | Certora | formal verification of *contracts*, not the runtime. relevant when cyb wants formal proofs over semcons; less relevant for the wasm runtime itself |
+| Certora's Sunbeam Prover (Soroban-specific formal verification) | Certora | formal verification of *contracts*, not the runtime. relevant when cyb wants formal proofs over dialects; less relevant for the wasm runtime itself |
 | Soroban's `RestoreFootprintOp` for archived persistent state | Stellar CAP-0046-08 | the "explicit restore step" pattern for cold storage. maps onto bbg cold-particle retrieval cleanly |
 
 ## rejected alternatives
@@ -349,7 +349,7 @@ rejected as a dependency; **adopted as a design source**. last release v0.13.2 (
 
 ### CosmWasm (cosmwasm-vm) as the embedded engine
 
-rejected for the cyb client runtime, retained as conceptual prior art for the [[semcons|semcon]] ABI. cosmwasm-vm is ~15k LOC and audited, but transitively pulls in wasmer-singlepass (~150k LOC), reintroducing the size problem wasmer was rejected for. the `execute`/`query`/`instantiate`/`migrate`/`sudo` contract shape is wrong for cyb souls, which are async UI callbacks — not synchronous request/response. the cw-cyber lineage points back to the [[go-cyber]] legacy chain, not toward [[soft3]]. **borrow the entry-point vocabulary** for semcons (`instantiate`, `execute`, `query`, `migrate`, `sudo`); do not embed the engine.
+rejected for the cyb client runtime, retained as conceptual prior art for the [[dialects|dialect]] ABI. cosmwasm-vm is ~15k LOC and audited, but transitively pulls in wasmer-singlepass (~150k LOC), reintroducing the size problem wasmer was rejected for. the `execute`/`query`/`instantiate`/`migrate`/`sudo` contract shape is wrong for cyb souls, which are async UI callbacks — not synchronous request/response. the cw-cyber lineage points back to the [[go-cyber]] legacy chain, not toward [[soft3]]. **borrow the entry-point vocabulary** for dialects (`instantiate`, `execute`, `query`, `migrate`, `sudo`); do not embed the engine.
 
 ### DFINITY IC embedder (`dfinity/ic/rs/embedders/`)
 
