@@ -1,4 +1,6 @@
-# agent collaboration
+# AGENTS.md — wysm
+
+> the doctrine of the home is `~/cyber/AGENTS.md`; it applies here first. Claude Code receives both files at session start through `~/.config/cyber/agents-md.nu`; other agents read them in order.
 
 principles for working with AI coding agents on the cyber wysm runtime. read this and the foundational documents to have full context:
 
